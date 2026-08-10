@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Comparateur public de rentabilité des Couronnes Burger King">
+  <title>Rat King — choisir un restaurant</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/search.js" defer></script>
+</head>
+<body>
+  <header class="hero hero--selector">
+    <div class="hero__content">
+      <p class="eyebrow">Comparateur indépendant · données publiques</p>
+      <h1>Où vos Couronnes valent-elles le plus&nbsp;?</h1>
+      <p>Recherchez librement un Burger King par ville, code postal, nom, adresse ou identifiant public.</p>
+      <div class="status-line">
+        {% if ready %}
+        <span class="status status--{{ 'fresh' if state == 'fresh' else 'stale' }}">Sources publiques disponibles</span>
+        {% if refreshed_label %}<span>Annuaire actualisé&nbsp;: {{ refreshed_label }}</span>{% endif %}
+        {% else %}
+        <span class="status status--stale">Initialisation des sources publiques</span>
+        <span>Le service reste actif et réessaie avec un délai borné.</span>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <main class="selector-main">
+    <section class="panel selector" data-search-url="/api/restaurants" aria-labelledby="selector-title">
+      <h2 id="selector-title">Choisir votre restaurant</h2>
+      <p>Le choix reste dans l’URL affichée et n’est associé à aucun compte, cookie ou historique.</p>
+      <label for="restaurant-search">Ville, code postal, restaurant ou adresse</label>
+      <input id="restaurant-search" type="search" autocomplete="off" spellcheck="false" maxlength="80" {% if not ready %}disabled{% endif %}>
+      <p id="search-state" class="search-state" aria-live="polite">{% if ready %}Saisissez au moins deux caractères.{% else %}Recherche disponible après l’initialisation.{% endif %}</p>
+      <ul id="restaurant-results" class="restaurant-results" aria-label="Restaurants proposés"></ul>
+    </section>
+
+    <section class="panel methodology" aria-labelledby="privacy-title">
+      <h2 id="privacy-title">Données publiques, choix privé</h2>
+      <p>Rat King n’utilise aucun compte Kingdom, cookie utilisateur, géolocalisation ou endpoint privé. Une recherche consulte uniquement l’annuaire déjà téléchargé par le serveur.</p>
+      {% if restaurant_count %}<p>{{ restaurant_count }} restaurants publics sont actuellement indexés.</p>{% endif %}
+      <ul>{% for url in source_urls %}<li><a href="{{ url }}" rel="noreferrer">{{ url }}</a></li>{% endfor %}</ul>
+    </section>
+  </main>
+</body>
+</html>

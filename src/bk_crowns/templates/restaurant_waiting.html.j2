@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Préparation du comparateur Rat King">
+  <title>Rat King — préparation</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/waiting.js" defer></script>
+</head>
+<body data-status-url="{{ status_url }}">
+  <header class="hero hero--selector">
+    <div class="hero__content">
+      <p class="eyebrow">Comparateur indépendant · données publiques</p>
+      <h1>Le comparateur se prépare</h1>
+      <p class="restaurant"><strong>{{ restaurant.name }}</strong> · {{ restaurant.id }}<br>{{ restaurant.address }}</p>
+    </div>
+  </header>
+  <main class="selector-main">
+    <section class="panel waiting" aria-live="polite">
+      {% if decision.state == "rate_limited" %}
+      <h2>Chargement différé</h2><p>Le quota horaire de nouveaux restaurants est atteint. Aucun appel supplémentaire n’a été envoyé.</p>
+      {% elif decision.state == "queue_full" %}
+      <h2>File occupée</h2><p>La file de préparation est complète. Réessayez plus tard sans recharger rapidement la page.</p>
+      {% elif decision.state in ("backoff", "stale_backoff") %}
+      <h2>Nouvelle tentative différée</h2><p>La source publique a rencontré une erreur. Rat King respecte un délai borné avant de réessayer.</p>
+      {% else %}
+      <h2>Chargement en cours</h2><p>Le catalogue public est récupéré, validé et calculé en arrière-plan.</p>
+      {% if decision.queue_position %}<p>Position indicative dans la file&nbsp;: {{ decision.queue_position }}.</p>{% endif %}
+      {% endif %}
+      <p id="waiting-state">Cette page se mettra à jour automatiquement dès que le snapshot sera disponible.</p>
+      <p><a href="/">Choisir un autre restaurant</a></p>
+    </section>
+  </main>
+</body>
+</html>

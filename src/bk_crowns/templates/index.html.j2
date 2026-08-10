@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Comparateur public de rentabilité des Couronnes Burger King">
+  <title>Rat King — {{ data.restaurant.name }}</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body data-status-url="{{ status_url }}">
+  <header class="hero">
+    <div class="hero__content">
+      <p class="eyebrow">Comparateur indépendant · données publiques</p>
+      <h1>Où vos Couronnes valent-elles le plus&nbsp;?</h1>
+      <p class="restaurant"><strong>{{ data.restaurant.name }}</strong> · {{ data.restaurant.id }}<br>{{ data.restaurant.address }}</p>
+      <div class="status-line">
+        <span id="freshness" class="status status--{{ status_class }}" data-state="{{ status_state }}" role="status">{{ status_label }}</span>
+        <span>Dernier refresh réussi&nbsp;: <time datetime="{{ data.refreshed_at.isoformat() }}">{{ refreshed_label }}</time></span>
+      </div>
+      <p class="match-rate"><strong>Taux d’appariement&nbsp;: {{ "%.1f"|format(data.match_rate * 100) }}&nbsp;%</strong> ({{ data.matched_count }}/{{ data.reward_count }} récompenses)</p>
+      <p><a class="back-link" href="/">Choisir un autre restaurant</a></p>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel filters" aria-labelledby="filters-title">
+      <h2 id="filters-title">Explorer le classement</h2>
+      <label>Rechercher
+        <input id="search" type="search" placeholder="Whopper, nuggets…" autocomplete="off">
+      </label>
+      <label>Filtrer par palier
+        <select id="tier-filter">
+          <option value="">Tous les paliers</option>
+          {% for tier in tiers %}<option value="{{ tier }}">{{ tier }} Couronnes</option>{% endfor %}
+        </select>
+      </label>
+      <label>Filtrer par type
+        <select id="kind-filter">
+          <option value="">Tous les types</option>
+          {% for kind in kinds %}<option value="{{ kind }}">{{ kind|capitalize }}</option>{% endfor %}
+        </select>
+      </label>
+    </section>
+
+    <section class="panel" aria-labelledby="ranking-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">Meilleure valeur en premier</p><h2 id="ranking-title">Classement général</h2></div>
+        <p id="visible-count" aria-live="polite"></p>
+      </div>
+      <div class="table-wrap">
+        <table id="ranking-table">
+          <thead><tr>
+            <th><button data-sort="product" type="button">Produit / récompense</button></th>
+            <th><button data-sort="price" type="button">Prix public</button></th>
+            <th><button data-sort="crowns" type="button">Couronnes</button></th>
+            <th><button data-sort="epc" type="button">€ / Couronne</button></th>
+            <th><button data-sort="yield" type="button">Rendement</button></th>
+            <th><button data-sort="spend" type="button">Dépense nécessaire</button></th>
+          </tr></thead>
+          <tbody>
+          {% for row in data.report.rows %}
+            <tr data-tier="{{ row.reward.crowns }}" data-kind="{{ row.reward.kind }}" data-product="{{ row.reward.name|lower }}" data-price="{{ row.price_euros }}" data-crowns="{{ row.reward.crowns }}" data-epc="{{ row.euros_per_crown }}" data-yield="{{ row.yield_percent }}" data-spend="{{ row.required_spend }}">
+              <td>
+                <strong>{{ row.reward.name }}</strong>
+                <span class="candidate">Prix de&nbsp;: {{ row.candidate_name }}</span>
+                <span class="badges">
+                  {% if row.dominated %}<span class="badge badge--warn" title="{{ row.domination_note }}">dominé</span>{% endif %}
+                  {% if row.reward.seasonal %}<span class="badge">saisonnier</span>{% endif %}
+                  {% if not row.reward.available or not row.catalog_available or not row.catalog_active %}<span class="badge badge--danger">indisponible</span>{% endif %}
+                </span>
+                {% if row.domination_note %}<small>{{ row.domination_note }}</small>{% endif %}
+              </td>
+              <td>{{ "%.2f"|format(row.price_euros) }}&nbsp;€</td>
+              <td>{{ row.reward.crowns }}</td>
+              <td><strong>{{ "%.4f"|format(row.euros_per_crown) }}&nbsp;€</strong></td>
+              <td>{{ "%.1f"|format(row.yield_percent) }}&nbsp;%</td>
+              <td>{{ "%.2f"|format(row.required_spend) }}&nbsp;€</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p id="empty-result" class="empty" hidden>Aucune récompense ne correspond à ces filtres.</p>
+    </section>
+
+    <section class="panel diagnostics" aria-labelledby="diagnostics-title">
+      <p class="eyebrow">Transparence</p>
+      <h2 id="diagnostics-title">Récompenses non appariées ou ambiguës</h2>
+      <p>Ces éléments ne participent pas au classement. Aucune suggestion approchée n’est acceptée automatiquement.</p>
+      {% if data.report.diagnostics %}
+      <ul>
+        {% for item in data.report.diagnostics %}
+        <li><strong>{{ item.reward.name }}</strong> — {{ item.reward.crowns }} Couronnes
+          <span class="badge badge--danger">{{ "ambiguë" if item.status == "ambiguous" else "non appariée" }}</span>
+          {% if item.diagnostic %}<br><small>{{ item.diagnostic }}</small>{% endif %}
+          {% if item.suggestions %}<br><small>Suggestions diagnostiques&nbsp;: {{ item.suggestions|join(", ") }}</small>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}<p>Toutes les récompenses ont été appariées sans ambiguïté.</p>{% endif %}
+    </section>
+
+    <section class="panel methodology" aria-labelledby="method-title">
+      <h2 id="method-title">Méthode et sources</h2>
+      <p>BK attribue actuellement deux Couronnes par euro dépensé. Le rendement équivalent vaut <code>200 × prix / Couronnes</code>. Un badge « dominé » compare uniquement des portions de la même famille et peut nécessiter plusieurs commandes, car BK limite le retrait à un avantage par commande.</p>
+      <ul>{% for url in data.source_urls %}<li><a href="{{ url }}" rel="noreferrer">{{ url }}</a></li>{% endfor %}</ul>
+      <p class="disclaimer">Projet indépendant, sans compte Kingdom, sans cookies utilisateur et sans endpoint privé. Prix et disponibilité susceptibles d’évoluer.</p>
+    </section>
+  </main>
+</body>
+</html>

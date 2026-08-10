@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling==1.29.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rat-king"
+version = "0.2.0"
+description = "Comparateur public de rentabilité des Couronnes Burger King France"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Rat King contributors" }]
+dependencies = [
+  "httpx==0.28.1",
+  "Jinja2==3.1.6",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build==1.4.4",
+  "hatchling==1.29.0",
+  "pytest==9.0.3",
+  "ruff==0.15.14",
+]
+
+[project.scripts]
+rat-king = "bk_crowns.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bk_crowns"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

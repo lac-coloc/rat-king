@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "aliases": {
+    "4 king nuggets": {
+      "kind": "produit",
+      "routes": ["nuggets-4"]
+    },
+    "6 onion rings": {
+      "kind": "produit",
+      "routes": ["moyen-6-oignon"]
+    },
+    "9 onion rings": {
+      "kind": "produit",
+      "routes": ["grand-9-oignon"]
+    },
+    "portion king fries cheddar bacon": {
+      "kind": "produit",
+      "routes": ["king-fries-cheese-bacon"]
+    },
+    "portion king fries cheddar crispy onions": {
+      "kind": "produit",
+      "routes": ["kingfries-crispyonions"]
+    },
+    "portion de king fries double cheddar": {
+      "kind": "produit",
+      "routes": ["king-fries-double-cheddar"]
+    },
+    "menu king nuggets de 7 nuggets": {
+      "kind": "menu",
+      "routes": ["menu-king-nuggets-7-p", "kingdom-menu-7-king-nuggets"]
+    },
+    "menu king nuggets avec 10 nuggets": {
+      "kind": "menu",
+      "routes": ["menu-king-nuggets-10", "kingdom-menu-10-king-nuggets"]
+    },
+    "king box 10 king nuggets 10 chili cheese": {
+      "kind": "box",
+      "routes": ["kingbox-10-nuggets-10-chili-cheese", "10-nuggets-10-chili-cheese"]
+    },
+    "king box 10 onion rings 10 king nuggets": {
+      "kind": "box",
+      "routes": ["kingbox-10-onion-rings-10-king-nuggets-dpl-dpl"]
+    },
+    "king box 10 onion rings 10 chili cheese": {
+      "kind": "box",
+      "routes": ["kingbox-onion-rings-x10-chili-cheese-x10"]
+    },
+    "king box 20 king nuggets": {
+      "kind": "box",
+      "routes": ["20-nuggets", "kd-kingbox"]
+    }
+  }
+}
