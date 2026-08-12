@@ -179,21 +179,22 @@ Rat King ; consulter une page ne charge aucune ressource BK.
 ## Docker
 
 ```bash
-docker build -t rat-king:0.2.2 .
+docker build -t rat-king:0.2.3 .
 docker volume create rat-king-data
 docker run --rm --name rat-king \
   --read-only \
   --volume rat-king-data:/data \
   --publish 8080:8080 \
-  rat-king:0.2.2
+  rat-king:0.2.3
 ```
 
 L’image utilise Python 3.14 sur Debian 13 « Trixie », avec une base officielle
 épinglée par digest. Elle installe une wheel, s’exécute avec l’UID/GID 10001 et
-n’écrit que dans `/data`.
+n’écrit que dans `/data`. L’image OCI publiée contient les variantes
+`linux/amd64` et `linux/arm64`.
 
-Un push du tag correspondant à la version du paquet, par exemple `v0.2.2`,
-déclenche la CI complète puis publie `ghcr.io/lac-coloc/rat-king:0.2.2`,
+Un push du tag correspondant à la version du paquet, par exemple `v0.2.3`,
+déclenche la CI complète puis publie `ghcr.io/lac-coloc/rat-king:0.2.3`,
 `latest` et un tag immuable lié au SHA Git. Aucun push de branche ou de pull
 request ne publie d’image.
 
@@ -205,8 +206,9 @@ kubectl apply -f deploy/k8s/service.yaml
 kubectl port-forward service/rat-king 8080:80
 ```
 
-Le Deployment référence l’image GHCR par digest immuable. Le package conteneur
-est public et ne nécessite aucun secret. Si un fork rend son package privé,
+Le Deployment référence l’index OCI GHCR par digest immuable ; Kubernetes
+sélectionne automatiquement AMD64 ou ARM64 selon l’architecture du nœud. Le
+package conteneur est public et ne nécessite aucun secret. Si un fork le rend privé,
 créer un secret de registre dans le namespace par le mécanisme de gestion de
 secrets du cluster, puis ajouter sous `spec.template.spec` :
 
