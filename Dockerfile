@@ -31,7 +31,7 @@ RUN groupadd --gid 10001 rat-king \
     && install -d -o 10001 -g 10001 /data
 
 COPY --from=builder /wheels /wheels
-RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels "rat-king==0.2.1" \
+RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels "rat-king==0.2.2" \
     && rm -rf /wheels
 
 USER 10001:10001

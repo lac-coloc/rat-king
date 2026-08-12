@@ -72,7 +72,7 @@ def _set_environment(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_package_reports_multi_restaurant_release() -> None:
-    assert __version__ == "0.2.1"
+    assert __version__ == "0.2.2"
 
 
 def test_refresh_parser_accepts_optional_strict_restaurant() -> None:

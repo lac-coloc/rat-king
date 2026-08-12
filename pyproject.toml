@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rat-king"
-version = "0.2.1"
+version = "0.2.2"
 description = "Comparateur public de rentabilité des Couronnes Burger King France"
 readme = "README.md"
 requires-python = ">=3.12"
