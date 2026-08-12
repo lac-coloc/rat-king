@@ -26,7 +26,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: rat-king
-          image: ghcr.io/lac-coloc/rat-king@sha256:91ed28ca210eb20b176a6c7b0930c876fb2dd8433ba9dff6fb2c947a67281155
+          image: ghcr.io/lac-coloc/rat-king@sha256:9aaf1ce0cfa2c899f5e8955e6484cea029664281fd71b986171cddc2bb12496d
           imagePullPolicy: IfNotPresent
           args:
             - serve
