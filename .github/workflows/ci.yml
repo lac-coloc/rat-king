@@ -7,15 +7,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 jobs:
   quality:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Python
-        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.6.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13.14"
           cache: pip
@@ -38,7 +42,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build image
         run: docker build --tag rat-king:ci .
 
@@ -54,7 +58,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate release tag
         id: metadata
         shell: bash
@@ -72,8 +76,10 @@ jobs:
           docker build
           --tag "${{ steps.metadata.outputs.image }}:${{ steps.metadata.outputs.version }}"
           --tag "${{ steps.metadata.outputs.image }}:latest"
+          --tag "${{ steps.metadata.outputs.image }}:sha-${GITHUB_SHA}"
           .
       - name: Push release image
         run: |
           docker push "${{ steps.metadata.outputs.image }}:${{ steps.metadata.outputs.version }}"
           docker push "${{ steps.metadata.outputs.image }}:latest"
+          docker push "${{ steps.metadata.outputs.image }}:sha-${GITHUB_SHA}"

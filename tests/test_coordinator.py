@@ -149,6 +149,9 @@ def test_cold_admissions_use_a_rolling_hour_window(tmp_path: Path) -> None:
     denied = coordinator.request(identifiers[6])
     assert denied.state == "rate_limited"
     assert denied.retry_after == clock() + timedelta(hours=1)
+    status = coordinator.status(identifiers[6])
+    assert status["state"] == "rate_limited"
+    assert status["retry_after"] == (clock() + timedelta(hours=1)).isoformat()
 
     clock.advance(3601)
 
@@ -236,6 +239,28 @@ def test_failed_refresh_sets_bounded_retry_backoff(tmp_path: Path) -> None:
     assert status.last_error == "source indisponible"
     assert status.retry_after == clock() + timedelta(seconds=30)
     assert coordinator.request("K2001").state == "stopping"
+
+
+def test_failed_cold_refresh_can_be_readmitted_after_backoff(tmp_path: Path) -> None:
+    def fail(_restaurant_id: str) -> None:
+        raise RuntimeError("source indisponible")
+
+    coordinator, _recorder, _repository, clock = _coordinator(
+        tmp_path, known=("K2001",), refresh_one=fail
+    )
+    coordinator.start()
+    try:
+        assert coordinator.request("K2001").accepted is True
+        coordinator._queue.join()
+        deferred = coordinator.request("K2001")
+        assert deferred.state == "backoff"
+        assert deferred.retry_after == clock() + timedelta(seconds=30)
+
+        clock.advance(31)
+
+        assert coordinator.request("K2001").accepted is True
+    finally:
+        coordinator.stop(timeout=2)
 
 
 def test_stop_refuses_new_admissions_and_joins_worker(tmp_path: Path) -> None:

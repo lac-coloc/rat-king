@@ -25,6 +25,7 @@ PUBLIC_URLS = {
 }
 TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
 class FetchError(RuntimeError):
@@ -103,17 +104,48 @@ class PublicFetcher:
         current_url = url
         for _redirect in range(4):
             self._ensure_running()
-            response = client.get(current_url)
-            client.cookies.clear()
-            self._ensure_running()
-            if response.status_code not in REDIRECT_STATUSES:
-                return response
-            location = response.headers.get("Location")
-            next_url = urljoin(str(response.url), location or "")
-            if not location or not self._redirect_is_safe(url, next_url):
-                raise FetchError("redirection hors des sources publiques autorisées")
-            current_url = next_url
+            with client.stream("GET", current_url) as streamed:
+                client.cookies.clear()
+                self._ensure_running()
+                if streamed.status_code in REDIRECT_STATUSES:
+                    location = streamed.headers.get("Location")
+                    next_url = urljoin(str(streamed.url), location or "")
+                    if not location or not self._redirect_is_safe(url, next_url):
+                        raise FetchError("redirection hors des sources publiques autorisées")
+                    current_url = next_url
+                    continue
+                content = self._read_limited(streamed)
+                decoded_headers = {
+                    key: value
+                    for key, value in streamed.headers.items()
+                    if key.casefold() not in {"content-encoding", "content-length"}
+                }
+                return httpx.Response(
+                    status_code=streamed.status_code,
+                    headers=decoded_headers,
+                    content=content,
+                    request=streamed.request,
+                    extensions=streamed.extensions,
+                )
         raise FetchError("trop de redirections pour une source publique")
+
+    def _read_limited(self, response: httpx.Response) -> bytes:
+        declared = response.headers.get("Content-Length")
+        if declared is not None:
+            try:
+                declared_size = int(declared)
+            except ValueError:
+                declared_size = 0
+            if declared_size > MAX_RESPONSE_BYTES:
+                raise FetchError("réponse publique trop volumineuse")
+
+        content = bytearray()
+        for chunk in response.iter_bytes():
+            self._ensure_running()
+            if len(content) + len(chunk) > MAX_RESPONSE_BYTES:
+                raise FetchError("réponse publique trop volumineuse après décompression")
+            content.extend(chunk)
+        return bytes(content)
 
     def get(
         self,

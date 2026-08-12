@@ -43,6 +43,7 @@ contiennent ni URL complète, ni chaîne de requête, ni identifiant sélectionn
 ## Politesse réseau et quotas
 
 - User-Agent explicite, timeout et trois tentatives maximum ;
+- réponses publiques limitées à 16 Mio après décompression ;
 - backoff borné et requêtes conditionnelles ETag/Last-Modified ;
 - cookies de réponse supprimés immédiatement et jamais persistés ;
 - une seule tâche de catalogue à la fois ;
@@ -51,6 +52,8 @@ contiennent ni URL complète, ni chaîne de requête, ni identifiant sélectionn
 - six nouveaux chargements à froid par fenêtre glissante d’une heure ;
 - fraîcheur et intervalle partagé par défaut de six heures ;
 - cache LRU limité à 20 restaurants.
+- serveur HTTP limité à 32 requêtes simultanées et sockets clientes bornées à
+  10 secondes.
 
 Une recherche ou une lecture d’état ne déclenche aucun appel BK. Seule la page
 d’un identifiant présent dans l’annuaire validé peut demander une admission en
@@ -176,22 +179,23 @@ Rat King ; consulter une page ne charge aucune ressource BK.
 ## Docker
 
 ```bash
-docker build -t rat-king:0.2.0 .
+docker build -t rat-king:0.2.1 .
 docker volume create rat-king-data
 docker run --rm --name rat-king \
   --read-only \
   --volume rat-king-data:/data \
   --publish 8080:8080 \
-  rat-king:0.2.0
+  rat-king:0.2.1
 ```
 
 L’image utilise Python 3.13 sur Debian 13 « Trixie », avec une base officielle
 épinglée par digest. Elle installe une wheel, s’exécute avec l’UID/GID 10001 et
 n’écrit que dans `/data`.
 
-Un push du tag correspondant à la version du paquet, par exemple `v0.2.0`,
-déclenche la CI complète puis publie `ghcr.io/lac-coloc/rat-king:0.2.0` et
-`latest`. Aucun push de branche ou de pull request ne publie d’image.
+Un push du tag correspondant à la version du paquet, par exemple `v0.2.1`,
+déclenche la CI complète puis publie `ghcr.io/lac-coloc/rat-king:0.2.1`,
+`latest` et un tag immuable lié au SHA Git. Aucun push de branche ou de pull
+request ne publie d’image.
 
 ## Kubernetes
 
@@ -201,9 +205,10 @@ kubectl apply -f deploy/k8s/service.yaml
 kubectl port-forward service/rat-king 8080:80
 ```
 
-Le Deployment référence l’image GHCR versionnée. Tant que le package conteneur
-est privé, créer un secret de registre dans le namespace par le mécanisme de
-gestion de secrets du cluster, puis ajouter sous `spec.template.spec` :
+Le Deployment référence l’image GHCR par digest immuable. Le package conteneur
+est public et ne nécessite aucun secret. Si un fork rend son package privé,
+créer un secret de registre dans le namespace par le mécanisme de gestion de
+secrets du cluster, puis ajouter sous `spec.template.spec` :
 
 ```yaml
 imagePullSecrets:
@@ -211,7 +216,7 @@ imagePullSecrets:
 ```
 
 Ce secret est une configuration du cluster et ne doit jamais être commité dans
-ce dépôt. Il n’est pas nécessaire si le package GHCR est rendu public.
+ce dépôt.
 
 Le Deployment d’exemple possède une réplique, une racine en lecture seule, un
 utilisateur non-root, seccomp `RuntimeDefault`, aucune capability, aucun token

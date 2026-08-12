@@ -28,6 +28,8 @@ from .restaurants import RestaurantDirectory
 from .state import StateError, StateRepository
 
 LOGGER = logging.getLogger(__name__)
+MAX_REQUEST_THREADS = 32
+CLIENT_SOCKET_TIMEOUT_SECONDS = 10.0
 _SELECTION = re.compile(r"^/restaurants/(K[0-9]{4})$")
 _RESTAURANT_STATUS = re.compile(r"^/api/restaurants/(K[0-9]{4})/status$")
 _RESTAURANT_DATA = re.compile(r"^/restaurants/(K[0-9]{4})/data\.json$")
@@ -118,6 +120,7 @@ class RefreshScheduler:
 class CrownsHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    request_queue_size = MAX_REQUEST_THREADS
 
     def __init__(
         self,
@@ -131,7 +134,29 @@ class CrownsHTTPServer(ThreadingHTTPServer):
         self.repository = repository
         self.coordinator = coordinator
         self.directory_provider = directory_provider
+        self._request_slots = threading.BoundedSemaphore(MAX_REQUEST_THREADS)
         super().__init__(address, CrownsRequestHandler)
+
+    def get_request(self):
+        request, client_address = super().get_request()
+        request.settimeout(CLIENT_SOCKET_TIMEOUT_SECONDS)
+        return request, client_address
+
+    def process_request(self, request, client_address) -> None:
+        if not self._request_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
 
 
 class CrownsRequestHandler(BaseHTTPRequestHandler):

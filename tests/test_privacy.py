@@ -1,4 +1,5 @@
 import re
+import tomllib
 from pathlib import Path
 
 PUBLISHABLE_CONFIGURATION = (
@@ -30,3 +31,10 @@ def test_container_publish_is_limited_to_version_tags() -> None:
     assert "packages: write" in workflow
     assert "startsWith(github.ref, 'refs/tags/v')" in workflow
     assert "--password-stdin" in workflow
+
+
+def test_project_does_not_claim_a_license() -> None:
+    project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
+
+    assert "license" not in project
+    assert not any(Path(".").glob("LICENSE*"))

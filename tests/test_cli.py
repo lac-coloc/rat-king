@@ -6,7 +6,7 @@ from bk_crowns import __version__
 from bk_crowns.cli import build_parser, main, resolve_serve_config
 from bk_crowns.config import Config
 from bk_crowns.generator import render_home
-from bk_crowns.models import Restaurant, SharedData, Status
+from bk_crowns.models import Restaurant, Reward, SharedData, Status
 from bk_crowns.state import StateRepository
 
 
@@ -37,7 +37,18 @@ def _publish_shared(tmp_path: Path) -> None:
                 "12345",
             ),
         ),
-        rewards=(),
+        rewards=tuple(
+            Reward(
+                crowns=(40, 80, 120)[index % 3],
+                name=f"Récompense exemple {index}",
+                kind="produit",
+                menu_size=None,
+                seasonal=False,
+                available=True,
+                source_url="https://example.test/rewards",
+            )
+            for index in range(10)
+        ),
         refreshed_at=datetime.now(UTC),
         source_urls=("https://example.test/public",),
     )
@@ -61,7 +72,7 @@ def _set_environment(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_package_reports_multi_restaurant_release() -> None:
-    assert __version__ == "0.2.0"
+    assert __version__ == "0.2.1"
 
 
 def test_refresh_parser_accepts_optional_strict_restaurant() -> None:

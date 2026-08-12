@@ -21,9 +21,22 @@ def _matched(
     *,
     kind: str = "produit",
     catalog_available: bool = True,
+    catalog_active: bool = True,
+    reward_available: bool = True,
 ) -> MatchResult:
+    reward = _reward(name, crowns, kind=kind)
+    if not reward_available:
+        reward = Reward(
+            crowns=reward.crowns,
+            name=reward.name,
+            kind=reward.kind,
+            menu_size=reward.menu_size,
+            seasonal=reward.seasonal,
+            available=False,
+            source_url=reward.source_url,
+        )
     return MatchResult(
-        reward=_reward(name, crowns, kind=kind),
+        reward=reward,
         status="matched",
         candidate_name=name,
         candidate_id=name,
@@ -31,7 +44,7 @@ def _matched(
         price_cents=price_cents,
         method="exact",
         candidate_available=catalog_available,
-        candidate_active=True,
+        candidate_active=catalog_active,
     )
 
 
@@ -119,3 +132,31 @@ def test_different_foods_and_menus_are_never_treated_as_substitutes() -> None:
     )
 
     assert all(row.dominated is False for row in calculated.rows)
+
+
+def test_equal_domination_alternatives_are_resolved_deterministically() -> None:
+    calculated = calculate(
+        _report(
+            _matched("4 King Nuggets classique", 40, 350),
+            _matched("4 King Nuggets épicé", 40, 350),
+            _matched("12 King Nuggets", 120, 900),
+        )
+    )
+
+    target = next(row for row in calculated.rows if row.reward.name == "12 King Nuggets")
+    assert target.dominated is True
+    assert "4 King Nuggets classique" in (target.domination_note or "")
+
+
+def test_unavailable_or_inactive_rewards_never_dominate_an_available_reward() -> None:
+    calculated = calculate(
+        _report(
+            _matched("4 King Nuggets indisponibles", 40, 350, reward_available=False),
+            _matched("4 King Nuggets inactifs", 40, 350, catalog_active=False),
+            _matched("4 King Nuggets catalogue indisponible", 40, 350, catalog_available=False),
+            _matched("6 King Nuggets", 80, 500),
+        )
+    )
+
+    target = next(row for row in calculated.rows if row.reward.name == "6 King Nuggets")
+    assert target.dominated is False

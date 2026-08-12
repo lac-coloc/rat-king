@@ -163,6 +163,15 @@ def test_waiting_page_polls_only_local_status_and_escapes_external_data() -> Non
     assert "burgerking.fr" not in html
 
 
+def test_waiting_script_reloads_when_a_public_backoff_expires() -> None:
+    script = static_asset("waiting.js").decode()
+
+    assert "retry_after" in script
+    assert "Date.parse" in script
+    assert "window.location.reload" in script
+    assert "burgerking.fr" not in script
+
+
 def test_generator_escapes_external_html_and_writes_json(tmp_path: Path) -> None:
     render_site(_snapshot(), tmp_path)
 

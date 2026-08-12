@@ -30,13 +30,21 @@ def mark_dominated(rows: list[RankedReward]) -> None:
     """Mark portions replaceable by integer orders of a smaller same-family reward."""
 
     for target in rows:
+        if not target.reward.available or not target.catalog_available or not target.catalog_active:
+            continue
         target_portion = _portion(target)
         if target_portion is None:
             continue
         target_quantity, target_family, display_family = target_portion
         alternatives: list[tuple[int, int, int, RankedReward]] = []
         for source in rows:
-            if source is target or source.reward.crowns >= target.reward.crowns:
+            if (
+                source is target
+                or source.reward.crowns >= target.reward.crowns
+                or not source.reward.available
+                or not source.catalog_available
+                or not source.catalog_active
+            ):
                 continue
             source_portion = _portion(source)
             if source_portion is None or source_portion[1] != target_family:
@@ -50,7 +58,16 @@ def mark_dominated(rows: list[RankedReward]) -> None:
 
         if not alternatives:
             continue
-        crown_cost, orders, negative_quantity, source = min(alternatives)
+        crown_cost, orders, negative_quantity, source = min(
+            alternatives,
+            key=lambda alternative: (
+                alternative[0],
+                alternative[1],
+                alternative[2],
+                normalize_name(alternative[3].reward.name),
+                normalize_name(alternative[3].candidate_name),
+            ),
+        )
         total_quantity = -negative_quantity
         target.dominated = True
         target.domination_note = (

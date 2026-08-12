@@ -13,11 +13,17 @@
           window.location.reload();
           return;
         }
+        const retryAt = Date.parse(payload.retry_after || "");
+        if (Number.isFinite(retryAt) && retryAt <= Date.now()) {
+          window.location.reload();
+          return;
+        }
         const labels = {
           queued: "Le restaurant est en file d’attente.",
           refreshing: "Le catalogue public est en cours de traitement.",
           backoff: "Nouvelle tentative différée après une erreur publique.",
           rate_limited: "Quota horaire atteint, aucun nouvel appel n’est envoyé.",
+          error: "La source publique a échoué ; une nouvelle tentative sera proposée.",
         };
         state.textContent = labels[payload.state] || "En attente d’un snapshot valide.";
       }

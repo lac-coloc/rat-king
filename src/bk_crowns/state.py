@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -27,6 +28,14 @@ from .models import (
 
 _SNAPSHOT_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 SNAPSHOT_RETENTION = 2
+MIN_REWARD_COUNT = 10
+MIN_TIER_COUNT = 3
+MIN_MATCH_COUNT = 5
+MIN_MATCH_RATE = 0.20
+MAX_CROWNS = 10_000
+MAX_PRICE_CENTS = 100_000
+_KINDS = {"produit", "burger", "dessert", "menu", "box"}
+_MATCH_STATUSES = {"matched", "unmatched", "ambiguous"}
 
 
 class StateError(RuntimeError):
@@ -47,6 +56,58 @@ def _datetime(value: object, *, required: bool = False) -> datetime | None:
     if parsed.tzinfo is None:
         raise StateError("date de statut sans fuseau")
     return parsed.astimezone(UTC)
+
+
+def _list(value: object, label: str) -> list[object]:
+    if not isinstance(value, list):
+        raise StateError(f"{label} doit être une liste")
+    return value
+
+
+def _text(value: object, label: str, *, allow_empty: bool = False) -> str:
+    if not isinstance(value, str) or (not allow_empty and not value.strip()):
+        raise StateError(f"{label} invalide")
+    return value
+
+
+def _optional_text(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    return _text(value, label)
+
+
+def _boolean(value: object, label: str) -> bool:
+    if not isinstance(value, bool):
+        raise StateError(f"{label} doit être un booléen")
+    return value
+
+
+def _integer(value: object, label: str, *, minimum: int = 0, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise StateError(f"{label} invalide")
+    return value
+
+
+def _number(
+    value: object,
+    label: str,
+    *,
+    minimum: float = 0.0,
+    maximum: float | None = None,
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise StateError(f"{label} invalide")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < minimum or (maximum is not None and parsed > maximum):
+        raise StateError(f"{label} invalide")
+    return parsed
+
+
+def _source_urls(value: object) -> tuple[str, ...]:
+    urls = tuple(_text(item, "URL source") for item in _list(value, "sources"))
+    if not urls or any(not url.startswith("https://") for url in urls):
+        raise StateError("URLs sources publiques invalides")
+    return urls
 
 
 def atomic_write_json(path: Path, payload: object) -> None:
@@ -313,13 +374,17 @@ class StateRepository:
     def load_shared_data(self) -> SharedData:
         document = self._normalized_document(self.shared)
         try:
-            restaurants = tuple(_restaurant(item) for item in document["restaurants"])
-            rewards = tuple(_reward(item) for item in document["rewards"])
+            restaurants = tuple(
+                _restaurant(item) for item in _list(document["restaurants"], "restaurants")
+            )
+            rewards = tuple(_reward(item) for item in _list(document["rewards"], "récompenses"))
             refreshed_at = _datetime(document["refreshed_at"], required=True)
-            source_urls = tuple(str(item) for item in document["source_urls"])
+            source_urls = _source_urls(document["source_urls"])
         except (KeyError, TypeError) as exc:
             raise StateError("snapshot partagé incohérent") from exc
         assert refreshed_at is not None
+        if not restaurants or len({item.id for item in restaurants}) != len(restaurants):
+            raise StateError("annuaire de restaurants vide ou dupliqué")
         return SharedData(restaurants, rewards, refreshed_at, source_urls)
 
     def load_restaurant_data(self, restaurant_id: str) -> SnapshotData:
@@ -327,22 +392,39 @@ class StateRepository:
         try:
             refreshed_at = _datetime(document["refreshed_at"], required=True)
             report_document = document["report"]
+            if not isinstance(report_document, dict):
+                raise StateError("rapport de restaurant invalide")
             report = CalculationReport(
-                rows=tuple(_ranked_reward(item) for item in report_document["rows"]),
-                diagnostics=tuple(_match_result(item) for item in report_document["diagnostics"]),
-                match_rate=float(report_document["match_rate"]),
+                rows=tuple(
+                    _ranked_reward(item) for item in _list(report_document["rows"], "classement")
+                ),
+                diagnostics=tuple(
+                    _match_result(item)
+                    for item in _list(report_document["diagnostics"], "diagnostics")
+                ),
+                match_rate=_number(
+                    report_document["match_rate"], "taux d'appariement du rapport", maximum=1.0
+                ),
             )
             assert refreshed_at is not None
-            return SnapshotData(
+            data = SnapshotData(
                 restaurant=_restaurant(document["restaurant"]),
                 refreshed_at=refreshed_at,
-                source_urls=tuple(str(item) for item in document["source_urls"]),
+                source_urls=_source_urls(document["source_urls"]),
                 report=report,
-                reward_count=int(document["reward_count"]),
-                matched_count=int(document["matched_count"]),
-                match_rate=float(document["match_rate"]),
-                shared_snapshot_id=str(document["shared_snapshot_id"]),
+                reward_count=_integer(
+                    document["reward_count"], "nombre de récompenses", maximum=10_000
+                ),
+                matched_count=_integer(
+                    document["matched_count"], "nombre d'appariements", maximum=10_000
+                ),
+                match_rate=_number(document["match_rate"], "taux d'appariement", maximum=1.0),
+                shared_snapshot_id=_text(
+                    document["shared_snapshot_id"], "identifiant du snapshot partagé"
+                ),
             )
+            _validate_snapshot_counts(data)
+            return data
         except (KeyError, TypeError, ValueError) as exc:
             raise StateError("snapshot de restaurant incohérent") from exc
 
@@ -368,10 +450,18 @@ class StateRepository:
             shutil.rmtree(target)
 
     def check(self) -> dict[str, object]:
-        self.load_shared_data()
+        shared = self.load_shared_data()
+        if len(shared.rewards) < MIN_REWARD_COUNT:
+            raise StateError("nombre de récompenses publiques insuffisant")
+        if len({reward.crowns for reward in shared.rewards}) < MIN_TIER_COUNT:
+            raise StateError("nombre de paliers publics insuffisant")
         identifiers = self.cached_restaurant_ids()
         for restaurant_id in identifiers:
-            self.load_restaurant_data(restaurant_id)
+            data = self.load_restaurant_data(restaurant_id)
+            if data.restaurant.id != restaurant_id:
+                raise StateError("restaurant incohérent avec son répertoire de cache")
+            if data.matched_count < MIN_MATCH_COUNT or data.match_rate < MIN_MATCH_RATE:
+                raise StateError("taux d'appariement du snapshot insuffisant")
         return {
             "ready": True,
             "shared_snapshot": self.shared.load_status().snapshot_id,
@@ -383,14 +473,15 @@ def _restaurant(document: object) -> Restaurant:
     if not isinstance(document, dict):
         raise StateError("restaurant normalisé invalide")
     try:
+        restaurant_id = validate_restaurant_id(_text(document["id"], "identifiant restaurant"))
         return Restaurant(
-            id=str(document["id"]),
-            name=str(document["name"]),
-            address=str(document["address"]),
-            city=str(document.get("city", "")),
-            postal_code=str(document.get("postal_code", "")),
+            id=restaurant_id,
+            name=_text(document["name"], "nom du restaurant"),
+            address=_text(document["address"], "adresse du restaurant"),
+            city=_text(document.get("city", ""), "ville", allow_empty=True),
+            postal_code=_text(document.get("postal_code", ""), "code postal", allow_empty=True),
         )
-    except KeyError as exc:
+    except (KeyError, ValueError) as exc:
         raise StateError("restaurant normalisé incomplet") from exc
 
 
@@ -398,14 +489,23 @@ def _reward(document: object) -> Reward:
     if not isinstance(document, dict):
         raise StateError("récompense normalisée invalide")
     try:
+        crowns = _integer(document["crowns"], "nombre de Couronnes", minimum=1, maximum=MAX_CROWNS)
+        kind = _text(document["kind"], "type de récompense")
+        if kind not in _KINDS:
+            raise StateError("type de récompense inconnu")
+        menu_size = _optional_text(document.get("menu_size"), "taille de menu")
+        if (kind == "menu" and menu_size not in {"M", "L"}) or (
+            kind != "menu" and menu_size is not None
+        ):
+            raise StateError("taille de récompense incohérente")
         return Reward(
-            crowns=int(document["crowns"]),
-            name=str(document["name"]),
-            kind=str(document["kind"]),
-            menu_size=(None if document.get("menu_size") is None else str(document["menu_size"])),
-            seasonal=bool(document["seasonal"]),
-            available=bool(document["available"]),
-            source_url=str(document["source_url"]),
+            crowns=crowns,
+            name=_text(document["name"], "nom de récompense"),
+            kind=kind,
+            menu_size=menu_size,
+            seasonal=_boolean(document["seasonal"], "indicateur saisonnier"),
+            available=_boolean(document["available"], "disponibilité de récompense"),
+            source_url=_source_urls([document["source_url"]])[0],
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise StateError("récompense normalisée incomplète") from exc
@@ -415,18 +515,33 @@ def _match_result(document: object) -> MatchResult:
     if not isinstance(document, dict):
         raise StateError("appariement normalisé invalide")
     try:
+        status = _text(document["status"], "état d'appariement")
+        if status not in _MATCH_STATUSES:
+            raise StateError("état d'appariement inconnu")
+        price = document.get("price_cents")
+        if price is not None:
+            price = _integer(price, "prix apparié", minimum=1, maximum=MAX_PRICE_CENTS)
+        candidate_available = document.get("candidate_available")
+        if candidate_available is not None:
+            candidate_available = _boolean(candidate_available, "disponibilité du candidat")
+        candidate_active = document.get("candidate_active")
+        if candidate_active is not None:
+            candidate_active = _boolean(candidate_active, "activité du candidat")
         return MatchResult(
             reward=_reward(document["reward"]),
-            status=str(document["status"]),
-            candidate_name=document.get("candidate_name"),
-            candidate_id=document.get("candidate_id"),
-            candidate_kind=document.get("candidate_kind"),
-            price_cents=document.get("price_cents"),
-            method=document.get("method"),
-            diagnostic=document.get("diagnostic"),
-            suggestions=tuple(str(item) for item in document.get("suggestions", ())),
-            candidate_available=document.get("candidate_available"),
-            candidate_active=document.get("candidate_active"),
+            status=status,
+            candidate_name=_optional_text(document.get("candidate_name"), "nom du candidat"),
+            candidate_id=_optional_text(document.get("candidate_id"), "identifiant du candidat"),
+            candidate_kind=_optional_text(document.get("candidate_kind"), "type du candidat"),
+            price_cents=price,
+            method=_optional_text(document.get("method"), "méthode d'appariement"),
+            diagnostic=_optional_text(document.get("diagnostic"), "diagnostic"),
+            suggestions=tuple(
+                _text(item, "suggestion")
+                for item in _list(document.get("suggestions", []), "suggestions")
+            ),
+            candidate_available=candidate_available,
+            candidate_active=candidate_active,
         )
     except KeyError as exc:
         raise StateError("appariement normalisé incomplet") from exc
@@ -436,20 +551,51 @@ def _ranked_reward(document: object) -> RankedReward:
     if not isinstance(document, dict):
         raise StateError("classement normalisé invalide")
     try:
-        return RankedReward(
-            reward=_reward(document["reward"]),
-            candidate_name=str(document["candidate_name"]),
-            candidate_kind=str(document["candidate_kind"]),
-            price_cents=int(document["price_cents"]),
-            price_euros=float(document["price_euros"]),
-            euros_per_crown=float(document["euros_per_crown"]),
-            required_spend=float(document["required_spend"]),
-            yield_percent=float(document["yield_percent"]),
-            catalog_available=bool(document.get("catalog_available", True)),
-            catalog_active=bool(document.get("catalog_active", True)),
-            match_method=document.get("match_method"),
-            dominated=bool(document.get("dominated", False)),
-            domination_note=document.get("domination_note"),
+        reward = _reward(document["reward"])
+        row = RankedReward(
+            reward=reward,
+            candidate_name=_text(document["candidate_name"], "nom classé"),
+            candidate_kind=_text(document["candidate_kind"], "type classé"),
+            price_cents=_integer(
+                document["price_cents"], "prix public", minimum=1, maximum=MAX_PRICE_CENTS
+            ),
+            price_euros=_number(document["price_euros"], "prix en euros"),
+            euros_per_crown=_number(document["euros_per_crown"], "euros par Couronne"),
+            required_spend=_number(document["required_spend"], "dépense nécessaire"),
+            yield_percent=_number(document["yield_percent"], "rendement"),
+            catalog_available=_boolean(
+                document.get("catalog_available", True), "disponibilité catalogue"
+            ),
+            catalog_active=_boolean(document.get("catalog_active", True), "activité catalogue"),
+            match_method=_optional_text(document.get("match_method"), "méthode de classement"),
+            dominated=_boolean(document.get("dominated", False), "indicateur de domination"),
+            domination_note=_optional_text(document.get("domination_note"), "note de domination"),
         )
+        expected = (
+            ("prix en euros", row.price_euros, row.price_cents / 100),
+            ("euros par Couronne", row.euros_per_crown, row.price_euros / reward.crowns),
+            ("dépense nécessaire", row.required_spend, reward.crowns / 2),
+            ("rendement", row.yield_percent, 200 * row.price_euros / reward.crowns),
+        )
+        for label, actual, calculated in expected:
+            if not math.isclose(actual, calculated, rel_tol=1e-9, abs_tol=1e-9):
+                raise StateError(f"formule incohérente pour {label}")
+        return row
     except (KeyError, TypeError, ValueError) as exc:
         raise StateError("classement normalisé incomplet") from exc
+
+
+def _validate_snapshot_counts(data: SnapshotData) -> None:
+    row_count = len(data.report.rows)
+    diagnostic_count = len(data.report.diagnostics)
+    if (
+        data.matched_count != row_count
+        or data.reward_count != row_count + diagnostic_count
+        or data.matched_count > data.reward_count
+    ):
+        raise StateError("comptage des récompenses incohérent")
+    expected_rate = data.matched_count / data.reward_count if data.reward_count else 0.0
+    if not math.isclose(data.match_rate, expected_rate, rel_tol=1e-9, abs_tol=1e-9):
+        raise StateError("taux d'appariement incohérent avec le comptage")
+    if not math.isclose(data.report.match_rate, data.match_rate, rel_tol=1e-9, abs_tol=1e-9):
+        raise StateError("taux d'appariement du rapport incohérent")

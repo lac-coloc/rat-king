@@ -2,6 +2,7 @@ import json
 import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from http.server import ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +15,13 @@ from bk_crowns.coordinator import AdmissionDecision
 from bk_crowns.generator import render_home, render_site
 from bk_crowns.models import CalculationReport, Restaurant, SharedData, SnapshotData, Status
 from bk_crowns.restaurants import RestaurantDirectory
-from bk_crowns.server import CrownsRequestHandler, RefreshScheduler
+from bk_crowns.server import (
+    CLIENT_SOCKET_TIMEOUT_SECONDS,
+    MAX_REQUEST_THREADS,
+    CrownsHTTPServer,
+    CrownsRequestHandler,
+    RefreshScheduler,
+)
 from bk_crowns.state import StateRepository
 
 
@@ -315,6 +322,57 @@ def test_unknown_assets_and_mutating_methods_are_rejected(tmp_path: Path) -> Non
         assert runtime.client.get("/assets/../templates/home.html.j2").status_code == 404
         assert runtime.client.post("/restaurants/K2001").status_code == 405
         assert runtime.client.get("/refresh").status_code == 404
+
+
+def test_http_server_refuses_work_above_its_thread_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = object.__new__(CrownsHTTPServer)
+    server._request_slots = threading.BoundedSemaphore(1)
+    accepted: list[object] = []
+    rejected: list[object] = []
+    monkeypatch.setattr(
+        ThreadingHTTPServer,
+        "process_request",
+        lambda _server, request, _address: accepted.append(request),
+    )
+    monkeypatch.setattr(
+        ThreadingHTTPServer,
+        "shutdown_request",
+        lambda _server, request: rejected.append(request),
+    )
+
+    first = object()
+    second = object()
+    server.process_request(first, ("127.0.0.1", 1))
+    server.process_request(second, ("127.0.0.1", 2))
+
+    assert MAX_REQUEST_THREADS == 32
+    assert accepted == [first]
+    assert rejected == [second]
+
+
+def test_http_server_sets_a_timeout_on_accepted_client_sockets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeSocket:
+        timeout: float | None = None
+
+        def settimeout(self, value: float) -> None:
+            self.timeout = value
+
+    client = FakeSocket()
+    server = object.__new__(CrownsHTTPServer)
+    monkeypatch.setattr(
+        ThreadingHTTPServer,
+        "get_request",
+        lambda _server: (client, ("127.0.0.1", 1)),
+    )
+
+    returned, _address = server.get_request()
+
+    assert returned is client
+    assert client.timeout == CLIENT_SOCKET_TIMEOUT_SECONDS == 10.0
 
 
 class _ImmediateRefresher:

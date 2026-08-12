@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+import bk_crowns.fetch as fetch_module
 from bk_crowns.config import Config, ConfigError
 from bk_crowns.fetch import FetchCancelled, FetchError, PublicFetcher
 from bk_crowns.models import CacheMetadata
@@ -237,3 +238,31 @@ def test_fetcher_honours_shutdown_before_starting_another_request(tmp_path: Path
     with pytest.raises(FetchCancelled):
         fetcher.get("restaurants", CacheMetadata())
     assert calls == 0
+
+
+def test_fetcher_rejects_a_decompressed_response_over_the_fixed_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fetch_module, "MAX_RESPONSE_BYTES", 8)
+    fetcher = PublicFetcher(
+        _config(tmp_path),
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, content=b"123456789")),
+    )
+
+    with pytest.raises(FetchError, match="volumineuse"):
+        fetcher.get("restaurants", CacheMetadata())
+
+
+def test_fetcher_rejects_an_oversized_content_length_before_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(fetch_module, "MAX_RESPONSE_BYTES", 8)
+    fetcher = PublicFetcher(
+        _config(tmp_path),
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, headers={"Content-Length": "9"}, content=b"ignored")
+        ),
+    )
+
+    with pytest.raises(FetchError, match="volumineuse"):
+        fetcher.get("restaurants", CacheMetadata())

@@ -7,7 +7,10 @@ import pytest
 from bk_crowns.config import Config, ConfigError
 from bk_crowns.models import (
     CalculationReport,
+    MatchResult,
+    RankedReward,
     Restaurant,
+    Reward,
     SharedData,
     SnapshotData,
     Status,
@@ -135,13 +138,28 @@ def test_record_failure_preserves_success_and_sanitizes_error(tmp_path: Path) ->
     assert store.status_payload(21_600)["state"] == "error"
 
 
+def _example_rewards() -> tuple[Reward, ...]:
+    return tuple(
+        Reward(
+            crowns=(40, 80, 120)[index % 3],
+            name=f"Récompense exemple {index}",
+            kind="produit",
+            menu_size=None,
+            seasonal=False,
+            available=True,
+            source_url="https://example.test/rewards",
+        )
+        for index in range(10)
+    )
+
+
 def _publish_shared(repository: StateRepository, snapshot_id: str = "shared-1") -> None:
     data = SharedData(
         restaurants=(
             Restaurant("K2001", "VILLE EXEMPLE", "10 RUE TEST", "VILLE EXEMPLE", "12345"),
             Restaurant("K2002", "CITÉ DÉMO", "2 AVENUE TEST", "CITÉ DÉMO", "54321"),
         ),
-        rewards=(),
+        rewards=_example_rewards(),
         refreshed_at=datetime(2026, 8, 10, 8, 0, tzinfo=UTC),
         source_urls=("https://example.test/restaurants",),
     )
@@ -156,6 +174,25 @@ def _publish_shared(repository: StateRepository, snapshot_id: str = "shared-1") 
 
 
 def _publish_restaurant(repository: StateRepository, restaurant_id: str, snapshot_id: str) -> None:
+    rewards = _example_rewards()
+    rows = tuple(
+        RankedReward(
+            reward=reward,
+            candidate_name=reward.name,
+            candidate_kind=reward.kind,
+            price_cents=300,
+            price_euros=3.0,
+            euros_per_crown=3.0 / reward.crowns,
+            required_spend=reward.crowns / 2,
+            yield_percent=600 / reward.crowns,
+            match_method="exact",
+        )
+        for reward in rewards[:5]
+    )
+    diagnostics = tuple(
+        MatchResult(reward=reward, status="unmatched", diagnostic="absent du catalogue")
+        for reward in rewards[5:]
+    )
     data = SnapshotData(
         restaurant=Restaurant(
             restaurant_id,
@@ -166,10 +203,10 @@ def _publish_restaurant(repository: StateRepository, restaurant_id: str, snapsho
         ),
         refreshed_at=datetime(2026, 8, 10, 8, 5, tzinfo=UTC),
         source_urls=("https://example.test/catalogue",),
-        report=CalculationReport((), (), 0.0),
-        reward_count=0,
-        matched_count=0,
-        match_rate=0.0,
+        report=CalculationReport(rows, diagnostics, 0.5),
+        reward_count=10,
+        matched_count=5,
+        match_rate=0.5,
         shared_snapshot_id="shared-1",
     )
     store = repository.restaurant(restaurant_id)
@@ -235,6 +272,32 @@ def test_repository_check_is_offline_and_covers_every_current_snapshot(tmp_path:
     result = repository.check()
 
     assert result == {"ready": True, "shared_snapshot": "shared-1", "restaurant_count": 1}
+
+
+def test_repository_check_rejects_semantically_invalid_shared_rewards(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    _publish_shared(repository)
+    normalized = repository.shared.current_path() / "normalized.json"
+    document = json.loads(normalized.read_text())
+    document["rewards"][0]["crowns"] = -40
+    normalized.write_text(json.dumps(document))
+
+    with pytest.raises(StateError, match="Couronnes"):
+        repository.check()
+
+
+def test_repository_check_rejects_inconsistent_restaurant_metrics(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    _publish_shared(repository)
+    _publish_restaurant(repository, "K2001", "restaurant-1")
+    normalized = repository.restaurant("K2001").current_path() / "normalized.json"
+    document = json.loads(normalized.read_text())
+    document["matched_count"] = 1
+    document["match_rate"] = 0.75
+    normalized.write_text(json.dumps(document))
+
+    with pytest.raises(StateError, match="comptage"):
+        repository.check()
 
 
 def test_repository_removes_only_a_strict_restaurant_directory(tmp_path: Path) -> None:

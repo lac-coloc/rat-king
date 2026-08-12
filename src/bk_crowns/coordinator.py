@@ -88,6 +88,14 @@ class RefreshCoordinator:
         except ValueError:
             return None
 
+    def _cold_retry_after(self, now: datetime) -> datetime | None:
+        threshold = now - timedelta(hours=1)
+        while self._cold_admissions and self._cold_admissions[0] <= threshold:
+            self._cold_admissions.popleft()
+        if len(self._cold_admissions) >= self.config.cold_loads_per_hour:
+            return self._cold_admissions[0] + timedelta(hours=1)
+        return None
+
     def request(self, restaurant_id: str) -> AdmissionDecision:
         try:
             safe_id = validate_restaurant_id(restaurant_id)
@@ -123,11 +131,8 @@ class RefreshCoordinator:
                 return AdmissionDecision("queue_full", False)
 
             if not has_snapshot:
-                threshold = now - timedelta(hours=1)
-                while self._cold_admissions and self._cold_admissions[0] <= threshold:
-                    self._cold_admissions.popleft()
-                if len(self._cold_admissions) >= self.config.cold_loads_per_hour:
-                    retry_after = self._cold_admissions[0] + timedelta(hours=1)
+                retry_after = self._cold_retry_after(now)
+                if retry_after is not None:
                     return AdmissionDecision("rate_limited", False, retry_after=retry_after)
                 self._cold_admissions.append(now)
 
@@ -167,6 +172,9 @@ class RefreshCoordinator:
             elif safe_id in self._queued:
                 payload["state"] = "queued_stale" if self._queued_stale[safe_id] else "queued"
                 payload["queue_position"] = self._queue_position(safe_id)
+            elif not store.is_ready() and (retry_after := self._cold_retry_after(self._now())):
+                payload["state"] = "rate_limited"
+                payload["retry_after"] = retry_after.isoformat()
         payload.pop("cache", None)
         return payload
 
