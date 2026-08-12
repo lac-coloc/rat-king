@@ -33,6 +33,16 @@ def test_container_publish_is_limited_to_version_tags() -> None:
     assert "--password-stdin" in workflow
 
 
+def test_container_ci_builds_and_publishes_amd64_and_arm64() -> None:
+    workflow = Path(".github/workflows/ci.yml").read_text()
+
+    assert workflow.count("platforms: linux/amd64,linux/arm64") == 2
+    assert workflow.count("docker/setup-qemu-action@") == 2
+    assert workflow.count("docker/setup-buildx-action@") == 2
+    assert workflow.count("docker/build-push-action@") == 2
+    assert workflow.count("push: true") == 1
+
+
 def test_project_does_not_claim_a_license() -> None:
     project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
 
