@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.32.4"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -17,7 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "build==1.6.1",
-  "hatchling==1.32.4",
+  "hatchling==1.33.0",
   "pytest==9.1.1",
   "ruff==0.17.1",
 ]
